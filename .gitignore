@@ -1,0 +1,11 @@
+*.rar
+*.pth
+*.amax
+*.ckpt
+.idea/*
+log_err/*
+*.xml
+ckpt/*
+__pycache__/*
+data/
+logs/
