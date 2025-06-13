@@ -9,3 +9,5 @@ ckpt/*
 __pycache__/*
 data/
 logs/
+*.npz
+*.npy

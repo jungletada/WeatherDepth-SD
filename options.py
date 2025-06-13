@@ -13,6 +13,9 @@ MAX_DEPTH = 80
 defalut_height = 384
 defalut_width = 1280
 
+load_map = {'rgb/data': '晴', 'mix_rain/50mm': '雨', 'raingan/data': '雨境', 'fog/150m': '雾', 'fog/75m': '大雾', 'average': '平均',
+            'variance': '方差', 'snowgan/data': '雪境', 'mix_snow/data': '雪'}
+
 index_map = {0: 'abs_rel', 1: 'sq_rel', 2: 'rmse', 
              3: 'rmse_log', 4: 'a1', 5: 'a2', 6: 'a3', }
 
@@ -140,7 +143,7 @@ class MonodepthOptions:
         self.parser.add_argument("--split",
             type=str,
             help="which training split to use",
-            default="eigen_full_left")
+            default="eigen_full")
         self.parser.add_argument("--num_layers",
             type=int,
             help="number of resnet layers",

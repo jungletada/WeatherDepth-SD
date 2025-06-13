@@ -11,11 +11,18 @@ import hashlib
 import zipfile
 import numpy as np
 from six.moves import urllib
+import collections
+string_classes = (str, bytes)
+import re
+import torch
+
 
 def meshgrid(x, y, indexing):
     # only for planedepth,if you don't use planedepth,ignore it
     grid_y, grid_x = torch.meshgrid(y, x)
     return (grid_x, grid_y)
+
+
 def save_code(srcfile, log_path):
     #save depth_decoder.py to log, easy to evaluation
     #srcfile = "./networks/depth_decoder.py"
@@ -27,6 +34,7 @@ def save_code(srcfile, log_path):
             os.makedirs(log_path)
         shutil.copy(srcfile, os.path.join(log_path, fname))
         print ("copy %s -> %s"%(srcfile, os.path.join(log_path, fname)))
+
 
 def readlines(filename):
     """Read all the lines in a text file and return as a list
@@ -130,11 +138,6 @@ def download_model_if_doesnt_exist(model_name):
 
         print("   Model unzipped to {}".format(model_path))
 
-
-import collections
-string_classes = (str, bytes)
-import re
-import torch
 
 np_str_obj_array_pattern = re.compile(r'[SaUO]')#正则表达式，用于匹配 numpy 数组中的字符串和对象类型
 default_collate_err_msg_format = (

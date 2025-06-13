@@ -6,10 +6,9 @@
 # Hope you can cite our paper if you use the code for your research.
 from __future__ import absolute_import, division, print_function
 import copy
+import cv2
 import random
-
 import time
-
 import torch
 import torch.optim as optim
 from torch.utils.data import DataLoader
@@ -19,10 +18,12 @@ import copy
 import json
 
 from layers import *
-
-from my_utils import *
-import options as g
-from evaluate_depth_HR import *
+import datasets
+import networks
+from utils import *
+import options as optionsg
+from Evaluate import compute_errors
+# from evaluate_depth_HR import *
 import warnings
 
 warnings.filterwarnings("ignore")
@@ -45,10 +46,17 @@ def init_seeds(seed=0, cuda_deterministic=True):
 class Trainer:
     def __init__(self, options):
         # region pre-set
+        self.opt = options
+        self.opt.cuda_devices = self.opt.cuda_devices if hasattr(self.opt, 'cuda_devices') else 0
+        
+        # Set CUDA_VISIBLE_DEVICES if not already set
+        if "CUDA_VISIBLE_DEVICES" not in os.environ:
+            os.environ["CUDA_VISIBLE_DEVICES"] = str(self.opt.cuda_devices)
+        
+        print("CUDA_VISIBLE_DEVICES:", os.environ.get("CUDA_VISIBLE_DEVICES", "Not set"))
+        
         pid = os.getpid()
         print('pid: ', pid)
-        self.opt = modify_opt(options)
-        print("CUDA_VISIBLE_DEVICES:", os.environ["CUDA_VISIBLE_DEVICES"])
         self.device = torch.device("cuda")
         if self.opt.net_type == "vit":
             # MonoViT model settings: use 640*192 resolution and monocular training(instead of stereo training)
@@ -62,6 +70,7 @@ class Trainer:
             print("Using SSIM loss", end=',')
             self.ssim = SSIM()
             self.ssim.to(self.device)
+        
         # multi_gpu setup
         if self.opt.use_multi_gpu:
             dist.init_process_group(backend='nccl')
@@ -135,15 +144,15 @@ class Trainer:
         datasets_dict = {"kitti": datasets.KITTIRAWDataset}
         self.dataset = datasets_dict[self.opt.dataset]
 
-        fpath = os.path.join(os.path.dirname(__file__), "./splits", self.opt.split, "{}_files.txt")
-
+        fpath = os.path.join(os.path.dirname(__file__), "splits", self.opt.split, "{}_files.txt")
+        
         train_filenames = readlines(fpath.format("train"))
         val_filenames = readlines(fpath.format("val"))
 
         if self.opt.debug:
             train_filenames = train_filenames[:100]
             val_filenames = val_filenames[:40]
-            self.opt.num_workers = 0 if self.opt.debug >= 2 else self.opt.num_workers  # 待完善
+            self.opt.num_workers = 0 if self.opt.debug >= 2 else self.opt.num_workers
             self.opt.num_epochs = min(10, self.opt.num_epochs) if (self.opt.debug >= 1 and self.opt.start_epoch == 0) else self.opt.num_epochs
 
         num_train_samples = len(train_filenames)
@@ -190,7 +199,7 @@ class Trainer:
                 self.project_3d[scale].to(self.device)
 
         self.init_key, self.best_abs, self.record_epoch = 100, 10, 0
-        self.record_key = {g.load_map['average']: [self.init_key]}
+        self.record_key = {optionsg.load_map['average']: [self.init_key]}
         self.class_level = self.opt.start_level
         self.w_curr = self.opt.cta_wadd if self.opt.cta_wadd > 0 else 0.1
         if self.opt.curr_version <= 5 and self.opt.train_strategy == 'cur':
@@ -204,17 +213,19 @@ class Trainer:
             self.create_summary_writer()
 
         print("Loading ground truth depths...", end=' ')
-        gt_path = modify_opt(path=os.path.join(self.opt.data_path, "gt_depths.npz"))
-        self.gt_depths = np.load(gt_path, allow_pickle=True)
+        gt_path = os.path.join(os.path.dirname(__file__), "splits", self.opt.split, "val_gt_depths.npz")
+        # gt_path = os.path.join(self.opt.data_path, "val_gt_depths.npz")
+        self.gt_depths = np.load(gt_path)
+        
         print("√")
         # endregion
 
-    # 预创建函数
     def create_summary_writer(self):
         print("Using split:\n  ", self.opt.split)
         print("There are {:d} training items , {:d} validation items\n".format(
             len(self.train_dataset), len(self.val_dataset)))
-        remove_logfolder(self.log_path, self.opt.save_strategy == "overwrite")
+        # remove_logfolder(self.log_path, self.opt.save_strategy == "overwrite")
+        
         if self.opt.net_type == "plane":
             save_code("./trainer.py", self.log_path)
             save_code("./networks/depth_decoder.py", self.log_path)
@@ -230,6 +241,7 @@ class Trainer:
     def create_models(self):
         print("==>Building network:")
         self.models = {}
+        
         if self.opt.net_type == "vit":
             print("train vit net")
             self.models["encoder"] = networks.mpvit_small()
@@ -239,6 +251,7 @@ class Trainer:
             self.models["depth"] = networks.HR_DepthDecoder()
             self.models["depth"].to(self.device)
             self.parameters_to_train += list(self.models["depth"].parameters())
+        
         elif self.opt.net_type == "plane":
             print("train plane net")
             self.models["encoder"] = networks.ResnetEncoder(self.opt.num_layers, True)
@@ -258,13 +271,15 @@ class Trainer:
                 for model_name, model in self.models.items():
                     model = model.to(self.device)
                     model = nn.SyncBatchNorm.convert_sync_batchnorm(model)
-                    self.models[model_name] = torch.nn.parallel.DistributedDataParallel(model, device_ids=[self.local_rank], output_device=self.local_rank, find_unused_parameters=True)
+                    self.models[model_name] = torch.nn.parallel.DistributedDataParallel(
+                        model, device_ids=[self.local_rank], output_device=self.local_rank, find_unused_parameters=True)
                     self.parameters_to_train += list(self.models[model_name].parameters())
             else:
                 for model_name, model in self.models.items():
                     model = model.to(self.device)
                     self.models[model_name] = model
                     self.parameters_to_train += list(model.parameters())
+        
         elif self.opt.net_type == "monodepth2":
             print("train monodepth2 net")
             self.models["encoder"] = networks.ResnetEncoder(
@@ -277,6 +292,7 @@ class Trainer:
 
             self.parameters_to_train += list(self.models["encoder"].parameters())
             self.parameters_to_train += list(self.models["depth"].parameters())
+        
         if not self.opt.net_type == "plane":
             self.models["pose_encoder"] = networks.ResnetEncoder(18, True, num_input_images=self.num_pose_frames)
             self.models["pose_encoder"].to(self.device)
@@ -296,16 +312,17 @@ class Trainer:
         for m in self.models.values():
             m.eval()
 
-    # 训练序列
     def train(self):
         self.epoch = 0
         self.step = 0
         for self.epoch in range(self.opt.start_epoch):
             self.model_lr_scheduler.step()
+        
         if self.opt.net_type == "vit":
             depth_lr = self.model_optimizer.param_groups[1]['lr']
             pose_lr = self.model_optimizer.param_groups[0]['lr']
             print(f'\nStarting from epoch {self.epoch} and current learning rate for depth is {depth_lr} and pose lr is {pose_lr}')
+        
         elif self.opt.net_type == "monodepth2":
             starting_lr = self.model_optimizer.param_groups[0]['lr']
             print(f'\nStarting from epoch {self.epoch} and current learning rate is {starting_lr}')
@@ -316,7 +333,9 @@ class Trainer:
             if self.opt.curr_version < 2:
                 if not (self.epoch + 1) <= self.opt.mix_rate[self.class_level] * self.opt.num_epochs:
                     self.schedul_class()
+            
             schedule_loss = self.run_epoch()
+            
             if not self.opt.use_multi_gpu or dist.get_rank() == 0:
                 if self.opt.do_save:
                     self.save_model(str(self.epoch))  # "last_model
@@ -355,12 +374,14 @@ class Trainer:
         record_loss, record_contast_loss, all_batch = 0, 0, 0
         self.set_train()
         self.train_dataset.do_contrast = self.do_contrast()
+        
         for batch_idx, inputs in enumerate(self.train_loader):
             if inputs is None:
                 self.model_optimizer.zero_grad()
                 self.model_optimizer.step()
                 self.step += 1
                 continue
+            
             before_op_time = time.time()
 
             if self.opt.flip_right:
@@ -383,6 +404,7 @@ class Trainer:
             if early_phase or late_phase:
                 average_loss = {"pure_loss": (record_loss - record_contast_loss) / (batch_idx + 1) if record_contast_loss > 0 else record_loss / (batch_idx + 1),
                                 "contrast_loss": record_contast_loss / (batch_idx + 1), "loss": record_loss / (batch_idx + 1)}
+                
                 if self.opt.use_multi_gpu:
                     if dist.get_rank() == 0:
                         self.log_loss(batch_idx, duration, average_loss)
@@ -390,24 +412,33 @@ class Trainer:
                     self.log_loss(batch_idx, duration, average_loss)
 
             self.step += 1
+            
             if batch_idx == 20:
                 if self.opt.use_multi_gpu:
                     if dist.get_rank() == 0:
                         self.log_img("train", inputs, outputs, outputs_cst)
                 else:
                     self.log_img("train", inputs, outputs, outputs_cst)
+            
             all_batch = batch_idx
+            
             if not self.opt.use_multi_gpu:
                 del inputs, outputs, outputs_cst, losses
 
-        average_loss = {"pure_loss": (record_loss - record_contast_loss) / (all_batch + 1) if record_contast_loss > 0 else record_loss / (all_batch + 1)
-            , "contrast_loss": record_contast_loss / (all_batch + 1), "loss": record_loss / (all_batch + 1)}
-        if not self.opt.use_multi_gpu or dist.get_rank() == 0:
-            with torch.no_grad():
-                self.val(average_loss)
+        average_loss = {
+            "pure_loss": (record_loss - record_contast_loss) / (all_batch + 1) if record_contast_loss > 0 else record_loss / (all_batch + 1), 
+            "contrast_loss": record_contast_loss / (all_batch + 1), 
+            "loss": record_loss / (all_batch + 1)
+            }
+        
+        # if not self.opt.use_multi_gpu or dist.get_rank() == 0:
+        #     with torch.no_grad():
+        #         self.val(average_loss)
+        
         if self.opt.use_multi_gpu:
             dist.barrier()
         self.model_lr_scheduler.step()
+        
         return average_loss
 
     def process_batch(self, inputs):
@@ -491,16 +522,18 @@ class Trainer:
     def val(self, loss):
         """online validation"""
         if self.opt.debug == 1:
-            print("Train √  Begin validation...")
+            print("Train 1 epoch finished. Begin validation...")
+            
         writer = self.writers["val"]
         STEREO_SCALE_FACTOR = 5.4
-        grid = meshgrid(torch.linspace(-1, 1, g.defalut_width), torch.linspace(-1, 1, g.defalut_height), indexing="xy")
+        grid = meshgrid(torch.linspace(-1, 1, optionsg.defalut_width), torch.linspace(-1, 1, optionsg.defalut_height), indexing="xy")
         grid = torch.stack(grid, dim=0).cuda()
         cv2.setNumThreads(0)
         load_val_mode = self.val_dataset.folder_name['train']
         self.set_eval()
-        MIN_DEPTH, MAX_DEPTH = g.MIN_DEPTH, g.MAX_DEPTH
+        MIN_DEPTH, MAX_DEPTH = optionsg.MIN_DEPTH, optionsg.MAX_DEPTH
         error_all, finish = [], False
+        
         for ld_mode in load_val_mode:
             self.val_dataset.specify_data(ld_mode)
             pred_disps = []
@@ -528,22 +561,23 @@ class Trainer:
             errors, ratios = [], []
 
             # region compute errors
-
             pred_disps = np.concatenate(pred_disps)
             for i in range(pred_disps.shape[0]):
-                gt_depth = self.gt_depths[i]
+                gt_depth = self.gt_depths[str(i)]
                 gt_height, gt_width = gt_depth.shape[:2]
-
+ 
                 pred_disp = pred_disps[i]
                 pred_disp = cv2.resize(pred_disp, (gt_width, gt_height))
                 if self.opt.net_type == "plane":
-                    pred_depth = 0.1 * 0.58 * g.defalut_width / (pred_disp)
+                    pred_depth = 0.1 * 0.58 * optionsg.defalut_width / (pred_disp)
                 else:
                     pred_depth = 1 / pred_disp
-                if i == 352:
-                    if self.epoch == 0 and ld_mode == 'rgb/data':
-                        VisulizeDepth(None, gt_depth, 'val_gt_depth', process='None', writer=writer)
-                    VisulizeDepth(None, pred_depth, 'val_pred_depth/{}'.format(ld_mode), process='None', writer=writer, rcd=self.epoch)
+                
+                # if i == 352:
+                #     if self.epoch == 0 and ld_mode == 'rgb/data':
+                #         VisulizeDepth(None, gt_depth, 'val_gt_depth', process='None', writer=writer)
+                #     VisulizeDepth(None, pred_depth, 'val_pred_depth/{}'.format(ld_mode), process='None', writer=writer, rcd=self.epoch)
+                
                 # create mask
                 gt_depth[gt_depth < MIN_DEPTH] = MIN_DEPTH
                 gt_depth[gt_depth > MAX_DEPTH] = MAX_DEPTH
@@ -569,45 +603,52 @@ class Trainer:
                 errors.append(compute_errors(gt_depth, pred_depth))
             mean_errors = np.array(errors).mean(0)
             if not self.opt.self_supervised:
-                if g.load_map[ld_mode] not in self.record_key:
-                    self.record_key[g.load_map[ld_mode]] = [self.init_key]
-                self.record_key[g.load_map[ld_mode]].append(mean_errors[2])
+                if optionsg.load_map[ld_mode] not in self.record_key:
+                    self.record_key[optionsg.load_map[ld_mode]] = [self.init_key]
+                self.record_key[optionsg.load_map[ld_mode]].append(mean_errors[2])
             error_all.append(mean_errors)
             # endregion
 
             for ind, error in enumerate(mean_errors):
-                writer.add_scalar('{}/{}'.format(g.load_map[ld_mode], g.index_map[ind]), error, self.epoch)
+                writer.add_scalar('{}/{}'.format(optionsg.load_map[ld_mode], optionsg.index_map[ind]), error, self.epoch)
             if self.opt.debug >= 1:
-                print("-> {}: {}".format(g.load_map[ld_mode], mean_errors))
+                print("-> {}: {}".format(optionsg.load_map[ld_mode], mean_errors))
 
         # region recoder error
         mean_errors = np.array(error_all).mean(0)
         var_errors = np.array(error_all).var(0)
         if not self.opt.self_supervised:
-            self.record_key[g.load_map['average']].append(mean_errors[2])
+            self.record_key[optionsg.load_map['average']].append(mean_errors[2])
         current_abs = mean_errors[0]
         if current_abs < self.best_abs:
             self.best_abs = current_abs
             self.best_epoch = self.epoch
             self.save_model('best' + str(self.class_level))
         for ind, error in enumerate(mean_errors):
-            writer.add_scalar('{}/{}'.format(g.load_map["average"], g.index_map[ind]), error, self.epoch)
+            writer.add_scalar('{}/{}'.format(optionsg.load_map["average"], optionsg.index_map[ind]), error, self.epoch)
             if self.opt.debug >= 1:
-                print("-> {}_{}: {}".format(g.load_map["average"], g.index_map[ind], error), end=' ')
-            writer.add_scalar('{}/{}'.format(g.load_map["variance"], g.index_map[ind]), var_errors[ind], self.epoch)
+                print("-> {}_{}: {}".format(optionsg.load_map["average"], optionsg.index_map[ind], error), end=' ')
+            writer.add_scalar('{}/{}'.format(optionsg.load_map["variance"], optionsg.index_map[ind]), var_errors[ind], self.epoch)
             if self.opt.debug >= 1:
-                print(", {}_{}: {}".format(g.load_map["variance"], g.index_map[ind], var_errors[ind]))
+                print(", {}_{}: {}".format(optionsg.load_map["variance"], optionsg.index_map[ind], var_errors[ind]))
         # endregion
+        
         self.set_train()
         # record loss
-        writer.add_scalar('loss/total_loss', loss['loss'], self.epoch), writer.add_scalar('loss/pure_loss', loss['pure_loss'], self.epoch), writer.add_scalar('loss/contrast_loss',
-            loss['contrast_loss'], self.epoch), writer.add_scalar('loss/real_contrast_loss', loss['contrast_loss'] / self.w_curr, self.epoch)
+        writer.add_scalar('loss/total_loss', loss['loss'], self.epoch), 
+        writer.add_scalar('loss/pure_loss', loss['pure_loss'], self.epoch), 
+        writer.add_scalar('loss/contrast_loss', loss['contrast_loss'], self.epoch), 
+        writer.add_scalar('loss/real_contrast_loss', loss['contrast_loss'] / self.w_curr, self.epoch)
+        
         if not self.opt.self_supervised:
             # we alse provide the way to use the online validation to schedule the curriculum learning, but we think it is not satisfy the self-supervised learning baseline.
-            into_which, difference, average_dif = list(set(self.val_dataset.folder_name['train']) & set(g.class_map[self.class_level])), 0, self.record_key[g.load_map['average']][-1] - self.record_key[g.load_map['average']][-2]
+            into_which, difference, average_dif = list(set(self.val_dataset.folder_name['train']) & set(optionsg.class_map[self.class_level])), 
+            0, 
+            self.record_key[optionsg.load_map['average']][-1] - self.record_key[optionsg.load_map['average']][-2]
+            
             if self.opt.train_strategy == 'cur':
                 for into in into_which:
-                    difference += self.record_key[g.load_map[into]][-1] - self.record_key[g.load_map[into]][-2]
+                    difference += self.record_key[optionsg.load_map[into]][-1] - self.record_key[optionsg.load_map[into]][-2]
                 difference /= len(into_which)
                 if self.opt.debug:
                     print('\033[91m' + "-> " + str(self.class_level) + " level rmse difference= " + str(difference) + " ,average_dif= " + str(average_dif) + '\033[0m')
@@ -618,8 +659,8 @@ class Trainer:
         else:
             difference = 0
             self.independent_patience = self.opt.max_patience + 1
-            self.record_key[g.load_map['average']].append(loss['pure_loss'])
-            average_dif = self.record_key[g.load_map['average']][-1] - self.record_key[g.load_map['average']][-2]
+            self.record_key[optionsg.load_map['average']].append(loss['pure_loss'])
+            average_dif = self.record_key[optionsg.load_map['average']][-1] - self.record_key[optionsg.load_map['average']][-2]
             thereshold = -0.0005 if self.opt.net_type == 'vit' else 0
             if self.opt.debug:
                 print('\033[91m' + "-> " + "average_dif= " + str(average_dif) + '\033[0m')
@@ -650,7 +691,10 @@ class Trainer:
             else:
                 color_name = "color"
 
-            features = torch.cat([inputs[(color_name, source_side)][:, None].expand(-1, N, -1, -1, -1).reshape(B * N, 3, H, W), outputs["logits"].reshape(B * N, 1, H, W)], dim=1)
+            features = torch.cat([
+                            inputs[(color_name, source_side)][:, None].expand(-1, N, -1, -1, -1).reshape(B * N, 3, H, W), 
+                            outputs["logits"].reshape(B * N, 1, H, W)], 
+                        dim=1)
 
             if self.opt.use_mixture_loss:
                 features = torch.cat([features, outputs["sigma"].reshape(B * N, 1, H, W)], dim=1)
@@ -699,7 +743,10 @@ class Trainer:
                     cam_points = self.backproject_depth[source_scale](depth, inputs[("inv_K", source_scale)])
                     pix_coords = self.project_3d[source_scale](cam_points, inputs[("K", source_scale)], T)
                     outputs[("sample", frame_id, scale)] = pix_coords
-                    outputs[("color", frame_id, scale)] = F.grid_sample(inputs[("color", frame_id, source_scale)], outputs[("sample", frame_id, scale)], padding_mode="border",
+                    outputs[("color", frame_id, scale)] = F.grid_sample(
+                        inputs[("color", frame_id, source_scale)], 
+                        outputs[("sample", frame_id, scale)], 
+                        padding_mode="border",
                         align_corners=True)  # clear image
 
     def compute_reprojection_loss(self, pred, target):
@@ -884,7 +931,9 @@ class Trainer:
         self.class_level += 1
         if self.opt.self_supervised:
             self.patience_max = self.patience_max + 1 if self.patience_max <= 3 else self.patience_max
+        
         self.w_curr = self.opt.cta_wadd if self.opt.cta_wadd > 0 else self.w_curr
+        
         max_level = len(self.opt.mix_rate) if self.opt.curr_version < 2 else 2
 
         if self.class_level == max_level and self.opt.max_patience > 3 and self.class_level == 2:
@@ -953,7 +1002,6 @@ class Trainer:
             except KeyError:
                 pass
 
-    # IO函数
     def save_opts(self):
         """Save options to disk so we know what we ran this experiment with
         """

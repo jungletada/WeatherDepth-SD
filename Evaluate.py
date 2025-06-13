@@ -38,28 +38,6 @@ cv2.setNumThreads(0)
 splits_dir = os.path.join(os.path.dirname(__file__), "./splits")
 STEREO_SCALE_FACTOR = 5.4
 
-logger = logging.getLogger(__name__)
-logger.setLevel(logging.INFO)
-
-# Create log directory if it doesn't exist
-os.makedirs('logs', exist_ok=True)
-
-# Get current date and time
-current_datetime = datetime.now()
-formatted_datetime = current_datetime.strftime("%Y-%m-%d %H:%M:%S")
-# Create handlers
-console_handler = logging.StreamHandler()
-file_handler = logging.FileHandler(f'logs/evaluation-{formatted_datetime}.log')
-
-# Create formatters and add it to handlers
-log_format = logging.Formatter('')
-console_handler.setFormatter(log_format)
-file_handler.setFormatter(log_format)
-
-# Add handlers to the logger
-logger.addHandler(console_handler)
-logger.addHandler(file_handler)
-
 
 def compute_errors(gt, pred):
     """Computation of delta accuracy metrics between predicted and ground truth depths
@@ -294,11 +272,12 @@ def evaluate(opt, pred_disps, probabilities_max, names, gt_depths):
             gt_depth = depth_png.astype(np.float32) / 256
             # gt_depth = gt_depth[250:800, :]
         elif opt.eval_split == 'cadc':
-            gt_depth = gt_depths[i][234:774, 0:1280]
+            gt_depth = gt_depths[str(i)][234:774, 0:1280]
         else:
-            gt_depth = gt_depths[i]
+            gt_depth = gt_depths[str(i)]
         gt_height, gt_width = gt_depth.shape[:2]
-
+        # print(gt_height, gt_width)
+        
         pred_disp = pred_disps[i]
         pred_disp = cv2.resize(pred_disp, (gt_width, gt_height))
         pred_depth = 0.1 * 0.58 * opt.width / (pred_disp) if opt.net_type == "plane" else 1 / pred_disp
@@ -335,6 +314,7 @@ def evaluate(opt, pred_disps, probabilities_max, names, gt_depths):
 
 
 def print_errors(errors, name, type='latex'):
+    """Print error metrics in a formatted way"""
     if type == 'latex':
         output = ("{:>20}").format(name) + ("&{:10.3f}" * 7).format(*errors.tolist()) + "  \\\\"
         logger.info(output)
@@ -370,7 +350,8 @@ def evaluate_all(opt):
         try:
             gt_depths = np.load(os.path.join(opt.data_path, "gt_depths.npy"), allow_pickle=True)
         except:
-            gt_depths = np.load(os.path.join(opt.data_path, "gt_depths.npz"))['data']
+            gt_depths = np.load(os.path.join(opt.data_path, "test_gt_depths.npz"))
+    
     logging.info(f"Load the ground truth files -> Evaluating")
 
     if opt.eval_stereo:
@@ -416,5 +397,28 @@ def evaluate_all(opt):
 
 
 if __name__ == "__main__":
+    # Set up logging
+    logger = logging.getLogger(__name__)
+    logger.setLevel(logging.INFO)
+
+    # Create log directory if it doesn't exist
+    os.makedirs('logs', exist_ok=True)
+
+    # Get current date and time
+    current_datetime = datetime.now()
+    formatted_datetime = current_datetime.strftime("%Y-%m-%d %H:%M:%S")
+    # Create handlers
+    console_handler = logging.StreamHandler()
+    file_handler = logging.FileHandler(f'logs/evaluation-{formatted_datetime}.log')
+
+    # Create formatters and add it to handlers
+    log_format = logging.Formatter('')
+    console_handler.setFormatter(log_format)
+    file_handler.setFormatter(log_format)
+
+    # Add handlers to the logger
+    logger.addHandler(console_handler)
+    logger.addHandler(file_handler)
+
     options = MonodepthOptions()
     evaluate_all(options.parse())

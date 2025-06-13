@@ -142,62 +142,31 @@ python Evaluate.py --data_path data/kitti --eval_mono --net_type vit --width 640
 ```bash
 python Evaluate.py --data_path data/kitti --eval_stereo --net_type wav --width 1024 --height 320 --load_weights_folder ckpt/weatherdepthWav --eval_split eigen_raw -twt -tww
 ```
--------------------
-### To evaluate the model on CADC, you can replace these parts
 
-```bash
---eval_stereo -> --eval_mono ;--eval_split eigen_raw -> --eval_split cadc;(delete) -tww -> None
-```
--------------------
-### To evaluate the model on DrivingStereo, you can also replace these parts
-
-```bash
---eval_stereo -> --eval_mono;--eval_split eigen_raw -> --eval_split stereo;(delete) -tww -> None
-```
-
-For example, to evaluate the model on DrivingStereo with WeatherDepth, you can run the following command:
-
-```bash
-python Evaluate.py --data_path YOUR_PATH_HERE --eval_mono --net_type plane --width 1280 --height 384 --load_weights_folder ./ckpt/weatherdepthPld --eval_split cadc -twt
-```
-
-If you correctly evaluate the model `(here show WeatherDepth* test WeatherKITTI)`, you will get the following results:
-
-```bash
--> Loading weights from ./ckpt/vitmy
--> Evaluating
-   Mono evaluation - using median scaling
--> Computing predictions with size 640x192
-           eigen_raw&   abs_rel&    sq_rel&      rmse&  rmse_log&        a1&        a2&        a3\\
-100%|███████████████████████████████████████████| 88/88 [00:08<00:00, 10.42it/s]
-            rgb/data&     0.099&     0.698&     4.330&     0.174&     0.897&     0.967&     0.984\\
-100%|███████████████████████████████████████████| 88/88 [00:07<00:00, 11.22it/s]
-        raingan/data&     0.104&     0.761&     4.457&     0.178&     0.892&     0.964&     0.983\\
-100%|███████████████████████████████████████████| 88/88 [00:08<00:00, 10.96it/s]
-            fog/150m&     0.098&     0.665&     4.256&     0.172&     0.900&     0.968&     0.985\\
-100%|███████████████████████████████████████████| 88/88 [00:07<00:00, 11.00it/s]
-        snowgan/data&     0.104&     0.749&     4.460&     0.179&     0.890&     0.964&     0.984\\
-100%|███████████████████████████████████████████| 88/88 [00:09<00:00,  9.56it/s]
-       mix_rain/50mm&     0.107&     0.799&     4.542&     0.182&     0.887&     0.963&     0.983\\
-100%|███████████████████████████████████████████| 88/88 [00:07<00:00, 11.05it/s]
-       mix_snow/data&     0.111&     0.822&     4.600&     0.186&     0.880&     0.961&     0.982\\
-100%|███████████████████████████████████████████| 88/88 [00:07<00:00, 11.20it/s]
-             fog/75m&     0.098&     0.675&     4.253&     0.173&     0.901&     0.968&     0.985\\
-             average&     0.103&     0.738&     4.414&     0.178&     0.892&     0.965&     0.984\\
-```
 ## ⏳ Training
 **Monocular training:(MonoViT)**
 
 ```shell
-python -u train.py --data_path YOUR_PATH_HERE --log_dir YOU_LOG_HERE --model_name WeatherDepthViT \
+python -u train.py --data_path data/kitti --log_dir logs --model_name WeatherDepthViT \
 --train_strategy cur --num_epochs 30 --weather all --cur_vis 4 --contrast_with 0 0 1 \
---gan --cta_wadd 0.02 --ss --maxp 0 --net_type vit --do_save
+--gan --cta_wadd 0.02 -ss --maxp 0 --net_type vit --do_save
 ```
 
 **Stereo training:(Planedepth)**
 
 ```shell
-python -u train.py --model_name WeatherDepthPld --data_path YOUR_PATH_HERE --log_dir YOU_LOG_HERE --train_strategy cur --cur_vis 5 --num_epochs 60 --weather all --gan --contrast_with 0 0 1 --cta_wadd 0.01 --ss --maxp 1 --do_save --net_type plane
+python -u train.py \
+        --model_name WeatherDepthPld \
+        --data_path data/kitti \
+        --log_dir logs \
+        --train_strategy cur \
+        --cur_vis 5 \
+        --num_epochs 60 \
+        --weather all \
+        --contrast_with 0 0 1 \
+        --cta_wadd 0.01 \
+        --net_type plane \
+        -ss --gan --do_save --maxp 1 
 ```
 
 To facilitate the reproduction of our model, we provide the training logs for the above commands at [here](./assets). **These logs are the training records of the models presented in the paper.** (For Planedepth, we used multi-GPU parallel training.)

@@ -7,7 +7,7 @@ from torchvision import transforms
 from torchvision import transforms as T
 from torchvision.utils import save_image
 
-import options as g
+import options as optionsg
 from utils import *
 from . import pair_transforms
 
@@ -347,20 +347,20 @@ class MonoDataset(data.Dataset):
 
     def change_data(self, class_level):
         if self.gan:
-            g.class_map[1] = ['raingan/data', 'fog/150m', 'snowgan/data']
+            optionsg.class_map[1] = ['raingan/data', 'fog/150m', 'snowgan/data']
         if self.curr_version != 1:
-            self.candidate_folder = g.class_map[class_level]
+            self.candidate_folder = optionsg.class_map[class_level]
             print('change level from:', class_level - 1, end=' ')
             print('to:', class_level)
         else:
-            self.candidate_folder += list(set(g.class_map[class_level]) - set(self.candidate_folder))
+            self.candidate_folder += list(set(optionsg.class_map[class_level]) - set(self.candidate_folder))
             print('Add level:', class_level)
         # The loading mode satisfies the triple constraints of curr version, cur level, and weather
         self.option_folder = list(set(self.folder_name['train']) & set(self.candidate_folder))
         if self.debug >= 1:
             print(f"now_folder:{' '.join(self.option_folder)}")
 
-        folder_ = list(set(self.folder_name['train']) & set(g.class_map[self.next_map[class_level]]))
+        folder_ = list(set(self.folder_name['train']) & set(optionsg.class_map[self.next_map[class_level]]))
         if self.contrast_data == []:
             self.contrast_data = [folder_]
 
