@@ -5,17 +5,16 @@
 # Origin used for paper: https://arxiv.org/abs/2310.05556v2
 # Hope you can cite our paper if you use the code for your research.
 from __future__ import absolute_import, division, print_function
-import copy
 import cv2
+import json
 import random
 import time
+
 import torch
 import torch.optim as optim
 from torch.utils.data import DataLoader
 import torch.distributed as dist
 from tensorboardX import SummaryWriter
-import copy
-import json
 
 from layers import *
 import datasets
@@ -58,8 +57,10 @@ class Trainer:
         pid = os.getpid()
         print('pid: ', pid)
         self.device = torch.device("cuda")
+        
         if self.opt.net_type == "vit":
-            # MonoViT model settings: use 640*192 resolution and monocular training(instead of stereo training)
+            # MonoViT model settings: use 640*192 resolution and,
+            # monocular training (instead of stereo training)
             self.opt.flip_right = False
             self.num_scales = len(self.opt.scales)
             self.opt.novel_frame_ids = [-1, 1]
@@ -81,8 +82,12 @@ class Trainer:
         else:
             init_seeds(0, not self.opt.debug)
 
-        self.opt.model_name = "{}{}_{}{}_{}".format("tmp" if self.opt.debug else "", self.opt.model_name,
-            self.opt.train_strategy, str(self.opt.curr_version), self.opt.weather)
+        self.opt.model_name = "{}{}_{}{}_{}".format(
+            "tmp" if self.opt.debug else "", 
+            self.opt.model_name,
+            self.opt.train_strategy, 
+            str(self.opt.curr_version), 
+            self.opt.weather)
         self.log_path = os.path.join(self.opt.log_dir, self.opt.model_name)
         self.save_folder = os.path.join(self.log_path, "models", "weights_{}")
 
@@ -108,26 +113,31 @@ class Trainer:
                 tmp.append((i + 1) / rcd_rate)
             self.opt.mix_rate = tmp
         print("Mixing rate is: ", self.opt.mix_rate)
-        # endregion
+        
         self.parameters_to_train = []
         self.target_sides = ["r"]
-        # endregion
-        # region building network
+        
+        # building network
         self.create_models()
+        
         if self.opt.net_type == "vit":
-            self.params = [{
-                "params": self.parameters_to_train,
-                "lr": 1e-4
-            },
+            self.params = [
+                {
+                    "params": self.parameters_to_train,
+                    "lr": 1e-4
+                },
                 {
                     "params": list(self.models["encoder"].parameters()),
                     "lr": 5e-5
-                }]
+                }
+            ]
             self.model_optimizer = optim.AdamW(self.params)
             self.model_lr_scheduler = optim.lr_scheduler.ExponentialLR(self.model_optimizer, 0.9)
+        
         elif self.opt.net_type == "monodepth2":
             self.model_optimizer = optim.Adam(self.parameters_to_train, self.opt.learning_rate)
             self.model_lr_scheduler = optim.lr_scheduler.MultiStepLR(self.model_optimizer, milestones=self.opt.scheduler_step_size, gamma=0.1)
+        
         elif self.opt.net_type == "plane":
             self.model_optimizer = optim.Adam(self.parameters_to_train, self.opt.learning_rate, betas=(self.opt.beta_1, self.opt.beta_2))
             self.model_lr_scheduler = optim.lr_scheduler.MultiStepLR(
@@ -139,8 +149,8 @@ class Trainer:
         print("Training model named:  ", self.opt.model_name)
         print("Models and tensorboard events files are saved to:  ", self.opt.log_dir)
         print("Training is using:  ", self.device)
-        # endregion
-        # region setup dataset
+
+        # setup dataset
         datasets_dict = {"kitti": datasets.KITTIRAWDataset}
         self.dataset = datasets_dict[self.opt.dataset]
 
@@ -239,7 +249,7 @@ class Trainer:
         self.log_file = open(os.path.join(self.log_path, "logs.log"), 'w')
 
     def create_models(self):
-        print("==>Building network:")
+        print("============> Building network:")
         self.models = {}
         
         if self.opt.net_type == "vit":

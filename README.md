@@ -11,7 +11,7 @@
 
 
 <div style="text-align:center">
-<img src="assets/pipline.png"  width="100%" height="100%">
+<!-- <img src="assets/pipline.png"  width="100%" height="100%"> -->
 </div>
 </div>
 
@@ -58,8 +58,9 @@ You should arrange your file tree as:
 
 ## 🖼️ Dataset Preparation
 
-You can download the WeatherKITTI test/full dataset from the following links (Excluding sunny scenes, that is the [KITTI dataset](https://www.cvlibs.net/datasets/kitti/raw_data.php), corresponding to the RGB part of the file tree):
-[**WeatherKITTI** ](https://wangjiyuan9.github.io/project/weatherkitti/),
+You can download the WeatherKITTI test/full dataset from the following links (Excluding sunny scenes (denoted as 'rgb'), which is the [**KITTI dataset**](https://www.cvlibs.net/datasets/kitti/raw_data.php), corresponding to the RGB part of the file tree).  
+
+Download the [**WeatherKITTI** ](https://wangjiyuan9.github.io/project/weatherkitti/),
 The data tree should be arranged as:
 
 ```bash
@@ -90,7 +91,7 @@ kitti
 ├── snowgan
 └── splits
 ```
-You can use the CADC and DrivingStereo datasets to evaluate the model's robustness. You can download the datasets from the following links:
+<!-- You can use the CADC and DrivingStereo datasets to evaluate the model's robustness. You can download the datasets from the following links:
 - Snowy image at [CADC_devkit](https://github.com/mpitropov/cadc_devkit) and GT depth at [here](https://drive.google.com/file/d/18brjQkqo8tFEYCiG3OlveSGxJ3dn3zOf/view?usp=sharing)
 - Rainy/Foggy image and their GT depth at [DrivingStereo](https://drivingstereo-dataset.github.io/)
 
@@ -108,22 +109,25 @@ The data tree should be arranged as:
     └── rainy
         ├── depth-map-full-size
         └── left-image-full-size
-```
+``` -->
+----
+### **Splits**
 
-**Splits**
+The train/test/validation splits are defined in the **`splits/`** folder.
 
-The train/test/validation splits are defined in the `splits/` folder.
 For monocular training (MonoViT baseline), the code will train a depth model using [Zhou's subset](https://github.com/tinghuiz/SfMLearner) of the standard Eigen split of KITTI, which is designed for monocular training.
+Folder as `splits/eigen_zhou`.
 
 For stereo-only training (PlaneDepth baseline), we can use the full Eigen training set – see paper for details.
+Folder as `splits/eigen_full`.
 
 ## 💾 Pretrained weights and evaluation
 
-| Models             | abs rel | sq rel | rmse  | rmse log | a1    | a2    | a3    |
-|--------------------|---------|--------|-------|----------|-------|-------|-------|
+| Models             | abs rel | sq rel | rmse  | rmse_log   | a1    | a2    | a3    |
+|--------------------|---------|--------|-------|------------|-------|-------|-------|
 | [WeatherDepth](https://drive.google.com/drive/folders/13evrsuXDnuw6UO7dH0YieYLpC5C2qIJf?usp=sharing)   | 0.099   | 0.673  | 4.324 | 0.185    | 0.884 | 0.959 | 0.981 |
 | [WeatherDepth*](https://drive.google.com/drive/folders/1lWwkeYGrZw6cHlUL9RAuENWN5tNDOAnZ?usp=sharing)  | 0.103   | 0.738  | 4.414 | 0.178    | 0.892 | 0.965 | 0.984 |
-| [WeatherDepth+ ](https://drive.google.com/drive/folders/1MC8YCbydUNcBFUQ083yNQJfE5niV43X0?usp=sharing) | 0.103|0.777|4.532|0.191|0.878|0.958|0.981|
+| [WeatherDepth+ ](https://drive.google.com/drive/folders/1MC8YCbydUNcBFUQ083yNQJfE5niV43X0?usp=sharing) | 0.103   | 0.777  | 4.532 | 0.191    | 0.878 | 0.958 | 0.981 |
 
 
 -------------------
@@ -147,17 +151,26 @@ python Evaluate.py --data_path data/kitti --eval_stereo --net_type wav --width 1
 **Monocular training:(MonoViT)**
 
 ```shell
-python -u train.py --data_path data/kitti --log_dir logs --model_name WeatherDepthViT \
---train_strategy cur --num_epochs 30 --weather all --cur_vis 4 --contrast_with 0 0 1 \
---gan --cta_wadd 0.02 -ss --maxp 0 --net_type vit --do_save
+python -u train.py \
+    --data_path data/kitti \
+    --model_name WeatherDepthViT \
+    --net_type vit \
+    --log_dir logs \
+    --train_strategy cur \
+    --num_epochs 30 \
+    --weather all \
+    --cur_vis 4 \
+    --contrast_with 0 0 1 \
+    --cta_wadd 0.02 \
+    --gan -ss --do_save --maxp 0
 ```
 
 **Stereo training:(Planedepth)**
 
 ```shell
 python -u train.py \
-        --model_name WeatherDepthPld \
         --data_path data/kitti \
+        --model_name WeatherDepthPld \
         --log_dir logs \
         --train_strategy cur \
         --cur_vis 5 \
@@ -166,7 +179,7 @@ python -u train.py \
         --contrast_with 0 0 1 \
         --cta_wadd 0.01 \
         --net_type plane \
-        -ss --gan --do_save --maxp 1 
+        --gan -ss --do_save --maxp 1 
 ```
 
 To facilitate the reproduction of our model, we provide the training logs for the above commands at [here](./assets). **These logs are the training records of the models presented in the paper.** (For Planedepth, we used multi-GPU parallel training.)
