@@ -178,11 +178,13 @@ class Trainer:
             self.train_sampler = torch.utils.data.distributed.DistributedSampler(self.train_dataset)
             self.train_loader = DataLoader(
                 self.train_dataset, self.opt.batch_size, False,
-                num_workers=self.opt.num_workers, sampler=self.train_sampler, pin_memory=True, drop_last=True, worker_init_fn=worker_init, collate_fn=rmnone_collate)
+                num_workers=self.opt.num_workers, sampler=self.train_sampler, pin_memory=True, 
+                drop_last=True, worker_init_fn=worker_init, collate_fn=rmnone_collate)
         else:
             self.train_loader = DataLoader(
                 self.train_dataset, self.opt.batch_size, False,
-                num_workers=self.opt.num_workers, pin_memory=True, drop_last=True, worker_init_fn=worker_init, collate_fn=rmnone_collate)
+                num_workers=self.opt.num_workers, pin_memory=True, drop_last=True, 
+                worker_init_fn=worker_init, collate_fn=rmnone_collate)
 
         self.val_dataset = self.dataset(self.opt, val_filenames, is_train=False)
         # in online_validation, we don't use the distributed sampler
