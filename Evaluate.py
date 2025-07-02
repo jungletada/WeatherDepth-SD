@@ -348,9 +348,9 @@ def evaluate_all(opt):
     gt_depths = None
     if opt.eval_split != 'stereo':
         try:
-            gt_depths = np.load(os.path.join(opt.data_path, "gt_depths.npy"), allow_pickle=True)
+            gt_depths = np.load(os.path.join('splits/eigen_zhou', "gt_depths.npy"), allow_pickle=True)
         except:
-            gt_depths = np.load(os.path.join(opt.data_path, "test_gt_depths.npz"))
+            gt_depths = np.load(os.path.join('splits/eigen_zhou', "test_gt_depths.npz"))
     
     logging.info(f"Load the ground truth files -> Evaluating")
 

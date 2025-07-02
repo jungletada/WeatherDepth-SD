@@ -73,7 +73,7 @@ class MonodepthOptions:
             default=0)
         self.parser.add_argument("--cta_wadd",
             type=float,
-            help="contrast_weight_add;in paper, named w_cst, the original contrastive loss weight",
+            help="contrast_weight_add; in paper, named w_cst, the original contrastive loss weight",
             default=1e-2)
         self.parser.add_argument("--only_contrast", "--only",
             type=int,

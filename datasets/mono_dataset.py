@@ -4,8 +4,8 @@ import random
 from PIL import Image
 import torch.utils.data as data
 from torchvision import transforms
-from torchvision import transforms as T
-from torchvision.utils import save_image
+# from torchvision import transforms as T
+# from torchvision.utils import save_image
 
 import options as optionsg
 from utils import *
@@ -22,7 +22,6 @@ def pil_loader(path):
 
 class MonoDataset(data.Dataset):
     """Superclass for monocular dataloader"""
-
     def __init__(self, opts, filenames, is_train=False, img_ext='.png'):
         super(MonoDataset, self).__init__()
         self.split = opts.eval_split
@@ -75,7 +74,7 @@ class MonoDataset(data.Dataset):
         self.current_mode = None
         self.rcd = False
         self.loader = pil_loader
-        self.to_tensor = pair_transforms.ToTensor() if opts.net_type == 'plane' else T.ToTensor()
+        self.to_tensor = pair_transforms.ToTensor() if opts.net_type == 'plane' else transforms.ToTensor()
         self.weather = opts.weather
         self.next_map = {0: opts.contrast_with[0], 1: opts.contrast_with[1], 2: opts.contrast_with[2]}
         self.target_scales = opts.scales
@@ -96,9 +95,8 @@ class MonoDataset(data.Dataset):
                 pair_transforms.RandomColorBrightness(min=0.8, max=1.2)])
             
         if opts.net_type == "plane":
-            self.val_data_aug = transforms.Compose([self.to_tensor,
-                                                    pair_transforms.Resize((
-                                                        self.height, self.width))])
+            self.val_data_aug = transforms.Compose(
+                [self.to_tensor, pair_transforms.Resize((self.height, self.width))])
             # g.defalut_height, g.defalut_width))])
         else:
             try:
@@ -114,7 +112,7 @@ class MonoDataset(data.Dataset):
             self.resize = {}
             for i in self.target_scales:
                 s = 2 ** i
-                self.resize[i] = T.Resize((self.height // s, self.width // s),
+                self.resize[i] = transforms.Resize((self.height // s, self.width // s),
                     interpolation=self.interp)
 
     def preprocess(self, inputs, color_aug):
@@ -193,11 +191,12 @@ class MonoDataset(data.Dataset):
                 del inputs[("color", "l", -1)]
             else:
                 inputs[("color", 0, 0)] = self.to_tensor(self.resize[0](get_image))
+            
             if self.debug >= 2:
                 print(ld_mode, "test", index)
             return inputs
 
-        # region image_process()
+        # image_process()
         inputs = {'save_mode': False}
         do_flip = self.is_train and random.random() > 0.5
         do_color_aug = self.is_train and random.random() > 0.5
@@ -236,6 +235,7 @@ class MonoDataset(data.Dataset):
             print(aug_folder, self.is_train, index)
             if self.do_contrast:
                 print("VS", contrast_folder)
+                
         frame = self.filenames[index].split()
         base_folder = 'rgb/data' if self.org_pjct else self.aug_folder
 
@@ -303,11 +303,12 @@ class MonoDataset(data.Dataset):
                 inputs[("inv_K", scale)] = torch.from_numpy(inv_K)
 
             if do_color_aug:
-                color_aug = T.ColorJitter(self.brightness, self.contrast, self.saturation, self.hue)
+                color_aug = transforms.ColorJitter(self.brightness, self.contrast, self.saturation, self.hue)
             else:
                 color_aug = (lambda x: x)
 
             self.preprocess(inputs, color_aug)
+            
             for i in self.frame_ids:
                 if ("color_aug", i, -1) in inputs:
                     del inputs[("color_aug", i, -1)]
@@ -326,7 +327,6 @@ class MonoDataset(data.Dataset):
                 stereo_T[0, 3] = side_sign * baseline_sign * 0.1
 
                 inputs["stereo_T"] = torch.from_numpy(stereo_T)
-        # endregion
 
         # # Below is the code to help save the image, and observe the effect of data enhancement and the consistency of each input
         # for key, ipt in inputs.items():
@@ -339,7 +339,8 @@ class MonoDataset(data.Dataset):
         stereo_T_r = np.eye(4, dtype=np.float32)
         stereo_T_r[0, 3] = -0.1
 
-        # All (RT,t) represents the change in view from t to left, except for "l" "l" indicates the change in view from left to right
+        # All (RT,t) represents the change in view from t to left, except for "l" 
+        # "l" indicates the change in view from left to right
         inputs[("Rt", "l")] = torch.from_numpy(stereo_T_l)
         inputs[("Rt", "r")] = torch.from_numpy(stereo_T_r)
 

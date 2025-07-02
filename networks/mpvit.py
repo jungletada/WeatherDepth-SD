@@ -13,9 +13,6 @@ from torch.nn.modules.batchnorm import _BatchNorm
 from mmcv.runner import load_checkpoint, load_state_dict
 from mmcv.cnn import build_norm_layer
 
-# from mmseg.utils import get_root_logger
-# from mmseg.models.builder import BACKBONES
-
 __all__ = [
     "mpvit_tiny",
     "mpvit_xsmall",
@@ -575,10 +572,8 @@ def dpr_generator(drop_path_rate, num_layers, num_stages):
     return dpr
 
 
-# @BACKBONES.register_module()
 class MPViT(nn.Module):
     """Multi-Path ViT class."""
-
     def __init__(
             self,
             num_classes=80,
@@ -768,11 +763,10 @@ def mpvit_xsmall(**kwargs):
 
 
 def mpvit_small(**kwargs):
-    """mpvit_small :
-
-    - #paths : [2, 3, 3, 3]
-    - #layers : [1, 3, 6, 3]
-    - #channels : [64, 128, 216, 288]
+    """ mpvit_small :
+    - # paths : [2, 3, 3, 3]
+    - # layers : [1, 3, 6, 3]
+    - # channels : [64, 128, 216, 288]
     - MLP_ratio : 4
     Number of params : 22892400
     FLOPs : 4799650824
@@ -788,7 +782,7 @@ def mpvit_small(**kwargs):
         num_heads=[8, 8, 8, 8],
         **kwargs,
     )
-    checkpoint = torch.load('./ckpt/mpvit_small.pth', map_location=lambda storage, loc: storage)['model']
+    checkpoint = torch.load('ckpt/mpvit_small.pth', map_location=lambda storage, loc: storage)['model']
     logger = logging.getLogger()
     load_state_dict(model, checkpoint, strict=False, logger=logger)
     del checkpoint
@@ -820,3 +814,5 @@ def mpvit_base(**kwargs):
     )
     model.default_cfg = _cfg_mpvit()
     return model
+
+        

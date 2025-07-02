@@ -10,9 +10,9 @@ from .mono_dataset import MonoDataset
 
 
 class KITTIDataset(MonoDataset):
-    """Superclass for different types of KITTI dataset loaders
     """
-
+        Superclass for different types of KITTI dataset loaders
+    """
     def __init__(self, *args, **kwargs):
         super(KITTIDataset, self).__init__(*args, **kwargs)
         self.K = np.array([[0.58, 0, 0.5, 0],
@@ -29,9 +29,11 @@ class KITTIDataset(MonoDataset):
         load_folder = folder.split("/")[0]
         addtion_folder = folder.split("/")[1]
         side_folder = {"l": "image_02", "r": "image_03"}[side]
-        get_path = os.path.join(self.data_path, load_folder, sequence, side_folder, addtion_folder, "{:010d}".format(frame) + self.img_ext)
+        get_path = os.path.join(self.data_path, load_folder, sequence, side_folder, addtion_folder, 
+                                "{:010d}".format(frame) + self.img_ext)
         if addtion_folder == "None":
-            get_path = os.path.join(self.data_path, load_folder, sequence, "{:010d}".format(frame) + self.img_ext)
+            get_path = os.path.join(self.data_path, load_folder, sequence, 
+                                    "{:010d}".format(frame) + self.img_ext)
         color = self.loader(get_path)
         if self.debug >= 3:
             print(get_path)
@@ -42,9 +44,9 @@ class KITTIDataset(MonoDataset):
 
 
 class KITTIRAWDataset(KITTIDataset):
-    """KITTI dataset which loads the original velodyne depth maps for ground truth
     """
-
+        KITTI dataset which loads the original velodyne depth maps for ground truth
+    """
     def __init__(self, *args, **kwargs):
         super(KITTIRAWDataset, self).__init__(*args, **kwargs)
 

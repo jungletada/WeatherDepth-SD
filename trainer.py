@@ -58,7 +58,7 @@ class Trainer:
         print('pid: ', pid)
         self.device = torch.device("cuda")
         
-        if self.opt.net_type == "vit":
+        if self.opt.net_type == "vit" or self.opt.net_type == "mbvit":
             # MonoViT model settings: use 640*192 resolution and,
             # monocular training (instead of stereo training)
             self.opt.flip_right = False
@@ -120,7 +120,7 @@ class Trainer:
         # building network
         self.create_models()
         
-        if self.opt.net_type == "vit":
+        if self.opt.net_type == "vit" or self.opt.net_type == "mbvit":
             self.params = [
                 {
                     "params": self.parameters_to_train,
@@ -136,10 +136,16 @@ class Trainer:
         
         elif self.opt.net_type == "monodepth2":
             self.model_optimizer = optim.Adam(self.parameters_to_train, self.opt.learning_rate)
-            self.model_lr_scheduler = optim.lr_scheduler.MultiStepLR(self.model_optimizer, milestones=self.opt.scheduler_step_size, gamma=0.1)
+            self.model_lr_scheduler = optim.lr_scheduler.MultiStepLR(
+                self.model_optimizer, 
+                milestones=self.opt.scheduler_step_size, 
+                gamma=0.1)
         
         elif self.opt.net_type == "plane":
-            self.model_optimizer = optim.Adam(self.parameters_to_train, self.opt.learning_rate, betas=(self.opt.beta_1, self.opt.beta_2))
+            self.model_optimizer = optim.Adam(
+                self.parameters_to_train,
+                  self.opt.learning_rate, 
+                  betas=(self.opt.beta_1, self.opt.beta_2))
             self.model_lr_scheduler = optim.lr_scheduler.MultiStepLR(
                 self.model_optimizer, milestones=self.opt.milestones, gamma=0.5)
 
@@ -191,8 +197,8 @@ class Trainer:
         self.val_loader = DataLoader(
             self.val_dataset, self.opt.batch_size, False,
             num_workers=self.opt.num_workers, pin_memory=True, drop_last=False)
-        # endregion
-        # region Other functions
+        
+        # Other functions
         if self.opt.net_type == "plane":
             if self.opt.pc_net == "vgg19":
                 self.pc_net = Vgg19_pc().cuda()
@@ -214,6 +220,7 @@ class Trainer:
         self.record_key = {optionsg.load_map['average']: [self.init_key]}
         self.class_level = self.opt.start_level
         self.w_curr = self.opt.cta_wadd if self.opt.cta_wadd > 0 else 0.1
+        
         if self.opt.curr_version <= 5 and self.opt.train_strategy == 'cur':
             self.patience_max = self.opt.max_patience if not self.opt.debug else 1
             self.schedul_class()
@@ -228,9 +235,7 @@ class Trainer:
         gt_path = os.path.join(os.path.dirname(__file__), "splits", self.opt.split, "val_gt_depths.npz")
         # gt_path = os.path.join(self.opt.data_path, "val_gt_depths.npz")
         self.gt_depths = np.load(gt_path)
-        
         print("√")
-        # endregion
 
     def create_summary_writer(self):
         print("Using split:\n  ", self.opt.split)
@@ -243,18 +248,28 @@ class Trainer:
             save_code("./networks/depth_decoder.py", self.log_path)
             save_code("./train_ResNet.sh", self.log_path)
         self.writers = {}
+        
         for mode in ["train", "val"]:
             self.writers[mode] = SummaryWriter(os.path.join(self.log_path, mode))
 
         self.save_opts()
-
         self.log_file = open(os.path.join(self.log_path, "logs.log"), 'w')
 
     def create_models(self):
-        print("============> Building network:")
+        print("===============> Building network:")
         self.models = {}
         
-        if self.opt.net_type == "vit":
+        if self.opt.net_type == "mbvit":
+            print("Train mobile Mambda ViT")
+            self.models["encoder"] = networks.mbmpvit_small()
+            self.models["encoder"].num_ch_enc = [64, 128, 216, 288, 288]
+            self.models["encoder"].to(self.device)
+
+            self.models["depth"] = networks.HR_DepthDecoder()
+            self.models["depth"].to(self.device)
+            self.parameters_to_train += list(self.models["depth"].parameters())
+
+        elif self.opt.net_type == "vit":
             print("train vit net")
             self.models["encoder"] = networks.mpvit_small()
             self.models["encoder"].num_ch_enc = [64, 128, 216, 288, 288]
@@ -330,7 +345,7 @@ class Trainer:
         for self.epoch in range(self.opt.start_epoch):
             self.model_lr_scheduler.step()
         
-        if self.opt.net_type == "vit":
+        if self.opt.net_type == "vit" or self.opt.net_type == "mbvit":
             depth_lr = self.model_optimizer.param_groups[1]['lr']
             pose_lr = self.model_optimizer.param_groups[0]['lr']
             print(f'\nStarting from epoch {self.epoch} and current learning rate for depth is {depth_lr} and pose lr is {pose_lr}')
@@ -339,7 +354,7 @@ class Trainer:
             starting_lr = self.model_optimizer.param_groups[0]['lr']
             print(f'\nStarting from epoch {self.epoch} and current learning rate is {starting_lr}')
 
-        print("==>Training started...")
+        print("===========> Training started...")
         for self.epoch in range(self.opt.start_epoch, self.opt.num_epochs):
             # Switch datasets according to the scale of the mix rate, only used in ablation study
             if self.opt.curr_version < 2:
@@ -350,9 +365,10 @@ class Trainer:
             
             if not self.opt.use_multi_gpu or dist.get_rank() == 0:
                 if self.opt.do_save:
-                    self.save_model(str(self.epoch))  # "last_model
+                    self.save_model(str(self.epoch))
                 else:
                     self.save_model("last")
+
             # region update w_curr
             if self.opt.curr_version <= 5:
                 self.record_epoch += 1
@@ -377,12 +393,13 @@ class Trainer:
                             finish = self.schedul_class()
                             if finish:
                                 break
-            # endregion
+                            
         print("Training finished after {} epochs,".format(self.epoch))
 
     def run_epoch(self):
         if self.opt.use_multi_gpu:
             self.train_sampler.set_epoch(self.epoch)
+
         record_loss, record_contast_loss, all_batch = 0, 0, 0
         self.set_train()
         self.train_dataset.do_contrast = self.do_contrast()
@@ -415,7 +432,8 @@ class Trainer:
 
             if early_phase or late_phase:
                 average_loss = {"pure_loss": (record_loss - record_contast_loss) / (batch_idx + 1) if record_contast_loss > 0 else record_loss / (batch_idx + 1),
-                                "contrast_loss": record_contast_loss / (batch_idx + 1), "loss": record_loss / (batch_idx + 1)}
+                                "contrast_loss": record_contast_loss / (batch_idx + 1), 
+                                "loss": record_loss / (batch_idx + 1)}
                 
                 if self.opt.use_multi_gpu:
                     if dist.get_rank() == 0:
@@ -458,11 +476,24 @@ class Trainer:
             inputs[key] = ipt.to(self.device)
 
         if self.opt.net_type == "plane":
-            features = self.models["encoder"](inputs[("color_aug", "l")])
+            features = self.models["encoder"](inputs[("color_aug", "l")]) # [3, 192, 640] * 8
             outputs = self.models["depth"](features, inputs["grid"])
         else:
-            feats = self.models["encoder"](inputs["color_aug", 0, 0])
+            feats = self.models["encoder"](inputs["color_aug", 0, 0]) # 5 intermedia features
             outputs = self.models['depth'](feats)
+
+            # ipt = inputs["color_aug", 0, 0]
+            # for img in ipt:
+            #     print(f'{img.shape}', end=', ')
+            # print("-------------")
+
+            # for img in feats:
+            #     print(f'{img.shape}', end=', ')
+            # print("-------------")
+
+            # for k, img in outputs.items():
+            #     print(f'{k}: {img.shape}', end=', ')
+            # print("-------------")
             outputs.update(self.predict_poses(inputs))
 
         self.pred_novel_images(inputs, outputs)
@@ -509,6 +540,7 @@ class Trainer:
         frameIDs = self.opt.novel_frame_ids + [0]
         if self.num_pose_frames == 2:
             pose_feats = {f_i: inputs["color", f_i, 0] for f_i in frameIDs}
+            
             for f_i in frameIDs:
                 if f_i != "s":
                     # To maintain ordering we always pass frames in temporal order
@@ -668,6 +700,7 @@ class Trainer:
                     self.independent_patience += 1
                 if (average_dif > 0):
                     self.average_patience += 1
+        
         else:
             difference = 0
             self.independent_patience = self.opt.max_patience + 1
@@ -768,7 +801,6 @@ class Trainer:
         reprojection_loss = 0.85 * ssim_loss + 0.15 * l1_loss
         return reprojection_loss
 
-    # region compute loss
     def perceptual_loss(self, pred, target, source=None):
         pred_vgg = self.pc_net(pred)
         target_vgg = self.pc_net(target)
@@ -896,8 +928,6 @@ class Trainer:
 
         return losses
 
-    # endregion
-    # Utility functions
     def add_flip_right_inputs(self, inputs):
         new_inputs = {}
         new_inputs[("color", "l")] = torch.cat([inputs[("color", "l")], inputs[("color", "r")].flip(-1)], dim=0)
@@ -938,7 +968,7 @@ class Trainer:
         return condition
 
     def schedul_class(self):
-        #Important! The function is used to schedule the curriculum learning. Please refer to the Algorithm 1 in the paper.(Maybe a little difference)
+        # Important! The function is used to schedule the curriculum learning. Please refer to the Algorithm 1 in the paper.(Maybe a little difference)
         self.record_epoch, self.independent_patience, self.average_patience, finish = 0, 0, 0, False
         self.class_level += 1
         if self.opt.self_supervised:
@@ -950,7 +980,7 @@ class Trainer:
 
         if self.class_level == max_level and self.opt.max_patience > 3 and self.class_level == 2:
             self.opt.load_weights_folder = self.log_path + "/best1"
-            print("-> Load best model,which is ", self.best_epoch, " epoch")
+            print(f"-------> Load best model, which is the {self.best_epoch} epoch")
             self.load_model()
 
         if self.class_level <= max_level:
@@ -958,7 +988,7 @@ class Trainer:
         else:
             finish = True
         if self.opt.debug >= 1:
-            print("-> Training change!")
+            print("----------> Training change!")
         return finish
 
     def log_loss(self, batch_idx, duration, losses):

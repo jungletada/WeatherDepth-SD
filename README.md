@@ -162,7 +162,24 @@ python -u train.py \
     --cur_vis 4 \
     --contrast_with 0 0 1 \
     --cta_wadd 0.02 \
-    --gan -ss --do_save --maxp 0
+    --max_patience 0 \
+    --gan -ss --do_save 
+```
+
+```shell
+python -u train.py \
+    --data_path data/kitti \
+    --model_name WeatherDepthViT \
+    --net_type mbvit \
+    --log_dir logs \
+    --train_strategy cur \
+    --num_epochs 30 \
+    --weather all \
+    --cur_vis 4 \
+    --contrast_with 0 0 1 \
+    --cta_wadd 0.02 \
+    --max_patience 0 \
+    --gan -ss --do_save 
 ```
 
 **Stereo training:(Planedepth)**
@@ -179,7 +196,8 @@ python -u train.py \
         --contrast_with 0 0 1 \
         --cta_wadd 0.01 \
         --net_type plane \
-        --gan -ss --do_save --maxp 1 
+        --max_patience 1 \
+        --gan -ss --do_save 
 ```
 
 To facilitate the reproduction of our model, we provide the training logs for the above commands at [here](./assets). **These logs are the training records of the models presented in the paper.** (For Planedepth, we used multi-GPU parallel training.)
