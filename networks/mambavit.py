@@ -629,6 +629,7 @@ class FeatureFusionModule(nn.Module):
             energy = torch.bmm(Q, K.transpose(1, 2)) / (self.embed_dim ** 0.5)  # [B, N, N]
             attn_weights = F.softmax(energy, dim=-1)  # normalize over source scale dim
             attn_output = torch.bmm(attn_weights, V)  # [B, N, d]
+
         # 4. Split fused embeddings and project back to original channels
         fused_features = []
         for i, orig_feature in enumerate(features):
@@ -638,7 +639,7 @@ class FeatureFusionModule(nn.Module):
             scale_weights = torch.sigmoid(self.output_layers[i](fused_emb_i))  # [B, C_i]
             scale_weights = scale_weights.unsqueeze(-1).unsqueeze(-1)          # [B, C_i, 1, 1]
             # 5. Reweight original feature map with these channel weights
-            fused_feature = orig_feature * scale_weights  # broadcast multiplication
+            fused_feature = orig_feature * scale_weights + orig_feature # broadcast multiplication
             fused_features.append(fused_feature)
         return fused_features
 
@@ -907,10 +908,10 @@ if __name__ == '__main__':
     for y in output:
         print(y.shape)
 
-"""
-([b, 64, 96, 320])
-([b, 128, 48, 160])
-([b, 216, 24, 80])
-([b, 288, 12, 40])
-([b, 288, 6, 20])
-"""
+    """
+    ([b, 64, 96, 320])
+    ([b, 128, 48, 160])
+    ([b, 216, 24, 80])
+    ([b, 288, 12, 40])
+    ([b, 288, 6, 20])
+    """
