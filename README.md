@@ -173,7 +173,7 @@ python -u train.py \
     --net_type mbvit \
     --log_dir logs \
     --train_strategy cur \
-    --num_epochs 30 \
+    --num_epochs 60 \
     --weather all \
     --cur_vis 4 \
     --contrast_with 0 0 1 \

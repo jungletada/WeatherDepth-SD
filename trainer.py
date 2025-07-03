@@ -22,7 +22,6 @@ import networks
 from utils import *
 import options as optionsg
 from Evaluate import compute_errors
-# from evaluate_depth_HR import *
 import warnings
 
 warnings.filterwarnings("ignore")
@@ -261,13 +260,21 @@ class Trainer:
         
         if self.opt.net_type == "mbvit":
             print("Train mobile Mambda ViT")
+            pretrain_path = 'ckpt/weatherdepthVit_Official'
+            encoder_dict = torch.load(os.path.join(pretrain_path, 'encoder.pth'))
+            depth_dict = torch.load(os.path.join(pretrain_path, 'depth.pth'))
+            
             self.models["encoder"] = networks.mbmpvit_small()
             self.models["encoder"].num_ch_enc = [64, 128, 216, 288, 288]
+            
+            self.models["encoder"].load_state_dict(encoder_dict, strict=False)
             self.models["encoder"].to(self.device)
 
             self.models["depth"] = networks.HR_DepthDecoder()
+            self.models["depth"].load_state_dict(depth_dict, strict=False)
             self.models["depth"].to(self.device)
             self.parameters_to_train += list(self.models["depth"].parameters())
+            
 
         elif self.opt.net_type == "vit":
             print("train vit net")

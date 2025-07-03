@@ -51,7 +51,8 @@ class MonodepthOptions:
             default="mix")
         self.parser.add_argument("--curr_version", "--cur_vis",
             type=int,
-            help="curriculum visualization, 0:org_cur, 1:mix_cur, 2:self_step, 3:ss+contrast, 4:used in vit, 5:used in planedepth,  0-3 used in ablation study",
+            help="curriculum visualization, "
+                 "0:org_cur, 1:mix_cur, 2:self_step, 3:ss+contrast, 4:used in vit, 5:used in planedepth,  0-3 used in ablation study",
             default=None)
         self.parser.add_argument("--org_pjct",
             help="if set 1,use the clear image for photometric re-projection estimation",
@@ -309,7 +310,7 @@ class MonodepthOptions:
         self.parser.add_argument("--num_epochs",
             type=int,
             help="number of epochs",
-            default=50)
+            default=60)
         self.parser.add_argument('--milestones',
             default=[30, 40], nargs='*',
             help='epochs at which learning rate is divided by 2')

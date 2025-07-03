@@ -26,8 +26,6 @@ class HR_DepthDecoder(nn.Module):
         self.convs["f2"] = Attention_Module(self.ch_enc[2]  , num_ch_enc[2])
         self.convs["f1"] = Attention_Module(self.ch_enc[1]  , num_ch_enc[1])
         
-
-
         self.all_position = ["01", "11", "21", "31", "02", "12", "22", "03", "13", "04"]
         self.attention_position = ["31", "22", "13", "04"]
         self.non_attention_position = ["01", "11", "21", "02", "12", "03"]

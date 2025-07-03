@@ -14,7 +14,6 @@ from torch.nn.modules.batchnorm import _BatchNorm
 from mmcv.runner import load_checkpoint, load_state_dict
 from mmcv.cnn import build_norm_layer
 
-from networks.model.mobilemamba.mobilemamba import MobileMambaBlock
 
 __all__ = [
     "mbmpvit_tiny",
@@ -560,21 +559,6 @@ class MHCA_stage(nn.Module):
         return out, att_outputs
 
 
-def dpr_generator(drop_path_rate, num_layers, num_stages):
-    """
-    Generate drop path rate list following linear decay rule
-    """
-    dpr_list = [x.item() for x in torch.linspace(0, drop_path_rate, sum(num_layers))]
-    dpr = []
-    cur = 0
-    for i in range(num_stages):
-        dpr_per_stage = dpr_list[cur: cur + num_layers[i]]
-        dpr.append(dpr_per_stage)
-        cur += num_layers[i]
-
-    return dpr
-
-
 class FeatureFusionModule(nn.Module):
     def __init__(self, in_channels_list, embed_dim=128, num_heads=1):
         """
@@ -642,6 +626,21 @@ class FeatureFusionModule(nn.Module):
             fused_feature = orig_feature * scale_weights + orig_feature # broadcast multiplication
             fused_features.append(fused_feature)
         return fused_features
+    
+             
+def dpr_generator(drop_path_rate, num_layers, num_stages):
+    """
+    Generate drop path rate list following linear decay rule
+    """
+    dpr_list = [x.item() for x in torch.linspace(0, drop_path_rate, sum(num_layers))]
+    dpr = []
+    cur = 0
+    for i in range(num_stages):
+        dpr_per_stage = dpr_list[cur: cur + num_layers[i]]
+        dpr.append(dpr_per_stage)
+        cur += num_layers[i]
+
+    return dpr
 
 
 class MambdaMPViT(nn.Module):
@@ -723,17 +722,17 @@ class MambdaMPViT(nn.Module):
             ]
         )
 
-        self.mb_block0 = MobileMambaBlock(type='s', ed=embed_dims[0])
-        self.mb_block1 = MobileMambaBlock(type='s', ed=embed_dims[1])
-        self.mb_block2 = MobileMambaBlock(type='s', ed=embed_dims[2])
-        self.mb_block3 = MobileMambaBlock(type='s', ed=embed_dims[3])
-        self.mb_block4 = MobileMambaBlock(type='s', ed=embed_dims[3])
+        # self.mb_block0 = MobileMambaBlock(type='s', ed=embed_dims[0])
+        # self.mb_block1 = MobileMambaBlock(type='s', ed=embed_dims[1])
+        # self.mb_block2 = MobileMambaBlock(type='s', ed=embed_dims[2])
+        # self.mb_block3 = MobileMambaBlock(type='s', ed=embed_dims[3])
+        # self.mb_block4 = MobileMambaBlock(type='s', ed=embed_dims[3])
         self.fusion = FeatureFusionModule(
             in_channels_list=embed_dims+[embed_dims[3]],
             embed_dim=128,
-            num_heads=4
+            num_heads=4,
             )
-
+    
     def init_weights(self, pretrained=None):
         """Initialize the weights in backbone.
 
@@ -760,18 +759,34 @@ class MambdaMPViT(nn.Module):
         else:
             raise TypeError("pretrained must be a str or None")
     
+    @staticmethod
+    def cross_scale_attention(x3, x4, x5):
+        h3, h4, h5 = x3.shape[2], x4.shape[2], x5.shape[2]
+        h_max = max(h3, h4, h5)
+        x3 = F.interpolate(x3, size=(h_max, h_max), mode='bilinear', align_corners=True)
+        x4 = F.interpolate(x4, size=(h_max, h_max), mode='bilinear', align_corners=True)
+        x5 = F.interpolate(x5, size=(h_max, h_max), mode='bilinear', align_corners=True)
+
+        mul = x3 * x4 * x5
+        x3 = x3 + mul
+        x4 = x4 + mul
+        x5 = x5 + mul
+
+        x3 = F.interpolate(x3, size=(h3, h3), mode='bilinear', align_corners=True)
+        x4 = F.interpolate(x4, size=(h4, h4), mode='bilinear', align_corners=True)
+        x5 = F.interpolate(x5, size=(h5, h5), mode='bilinear', align_corners=True)
+        return x3, x4, x5
+    
     def forward_features(self, x):
         # x's shape : [B, C, H, W]
         outs = []
         x = self.stem(x)  # Shape : [B, C, H/4, W/4]
-        outs.append(self.mb_block0(x))
-        mb_blocks = [self.mb_block1, self.mb_block2, self.mb_block3, self.mb_block4]
+        outs.append(x)
         for idx in range(self.num_stages):
             att_inputs = self.patch_embed_stages[idx](x)
             x, ff = self.mhca_stages[idx](att_inputs)
-            x = mb_blocks[idx](x)  # Assuming mb_block0 is already processed before the loop
             outs.append(x)
-
+            
         outs = self.fusion(outs)
         return outs
 
@@ -827,7 +842,6 @@ def mbmpvit_xsmall(**kwargs):
     FLOPs : 2971396560
     Activations : 21983464
     """
-
     model = MambdaMPViT(
         num_stages=4,
         num_path=[2, 3, 3, 3],
