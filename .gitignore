@@ -6,8 +6,9 @@
 log_err/*
 *.xml
 ckpt/*
-__pycache__/*
+__pycache__
 data/
 logs/
 *.npz
 *.npy
+.DS_store
