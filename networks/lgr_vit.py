@@ -14,7 +14,6 @@ from torch.nn.modules.batchnorm import _BatchNorm
 from mmcv.runner import load_checkpoint, load_state_dict
 from mmcv.cnn import build_norm_layer
 
-
 __all__ = [
     "mbmpvit_tiny",
     "mbmpvit_xsmall",
@@ -559,17 +558,17 @@ class MHCA_stage(nn.Module):
         return out, att_outputs
 
 
-class FeatureFusionModule(nn.Module):
+class GlobalAggregateAttention(nn.Module):
     def __init__(self, in_channels_list, embed_dim=128, num_heads=1):
         """
-        Initialize the multi-scale feature fusion module.
+        Global Feature Aggregation
         Args:
             in_channels_list (list[int]): Number of channels for each input feature scale.
             embed_dim (int): Dimension to project features into for cross-scale interactions.
             num_heads (int): Number of attention heads (if using multihead attention). 
                               Use 1 for single-head (simple) attention.
         """
-        super(FeatureFusionModule, self).__init__()
+        super(GlobalAggregateAttention, self).__init__()
         self.num_scales = len(in_channels_list)
         self.embed_dim = embed_dim
         # Linear layers to embed each scale's descriptor to a common dimension
@@ -620,14 +619,81 @@ class FeatureFusionModule(nn.Module):
             # Get fused embedding for scale i: shape [B, embed_dim]
             fused_emb_i = attn_output[:, i, :] 
             # Project to original channel count [B, C_i] and apply sigmoid gating
-            scale_weights = torch.sigmoid(self.output_layers[i](fused_emb_i))  # [B, C_i]
+            scale_weights = self.output_layers[i](fused_emb_i) # torch.sigmoid(self.output_layers[i](fused_emb_i))  # [B, C_i]
             scale_weights = scale_weights.unsqueeze(-1).unsqueeze(-1)          # [B, C_i, 1, 1]
             # 5. Reweight original feature map with these channel weights
             fused_feature = orig_feature * scale_weights + orig_feature # broadcast multiplication
             fused_features.append(fused_feature)
         return fused_features
     
-             
+
+class LightweightScaleGCN(nn.Module):
+    """
+        Local Feature Refinement 
+    """
+    def __init__(self):
+        super(LightweightScaleGCN, self).__init__()
+        # 定义每个邻接尺度之间的1x1卷积，用于通道对齐和信息变换
+        # 下采样邻居卷积 (conv_down{i} 表示将第{i-1}层高分辨率特征映射到第{i}层通道数)
+        self.conv_down1 = nn.Conv2d(64, 128, kernel_size=1)   # x0 -> x1 通道变换
+        self.conv_down2 = nn.Conv2d(128, 216, kernel_size=1)  # x1 -> x2
+        self.conv_down3 = nn.Conv2d(216, 288, kernel_size=1)  # x2 -> x3
+        self.conv_down4 = nn.Conv2d(288, 288, kernel_size=1)  # x3 -> x4
+        # 上采样邻居卷积 (conv_up{i} 表示将第{i+1}层低分辨率特征映射到第{i}层通道数)
+        self.conv_up0  = nn.Conv2d(128, 64, kernel_size=1)    # x1 -> x0
+        self.conv_up1  = nn.Conv2d(216, 128, kernel_size=1)   # x2 -> x1
+        self.conv_up2  = nn.Conv2d(288, 216, kernel_size=1)   # x3 -> x2
+        self.conv_up3  = nn.Conv2d(288, 288, kernel_size=1)   # x4 -> x3
+        # 自身特征通道变换卷积 (conv_self{i} 用于赋予每层特征一个可学习的权重变换)
+        self.conv_self0 = nn.Conv2d(64, 64, kernel_size=1)
+        self.conv_self1 = nn.Conv2d(128, 128, kernel_size=1)
+        self.conv_self2 = nn.Conv2d(216, 216, kernel_size=1)
+        self.conv_self3 = nn.Conv2d(288, 288, kernel_size=1)
+        self.conv_self4 = nn.Conv2d(288, 288, kernel_size=1)
+
+    def forward(self, x_list):
+        """
+        参数:
+            x_list: 长度为5的特征图列表 [x0, x1, x2, x3, x4]
+        返回:
+            增强后的5个特征图列表 [y0, y1, y2, y3, y4] (形状分别与输入对应)
+        """
+        # 解包输入特征
+        x0, x1, x2, x3, x4 = x_list
+
+        # 逐层融合相邻尺度特征
+        # 对于每层yi_new，我们使用该层自身以及相邻上下层的信息
+        # 1. 最底层 x0 仅与 x1 融合（x0 邻居只有上方的 x1）
+        #    将 x1 上采样至 x0 大小，通过1x1卷积调整通道后与 x0 融合
+        x1_up_to_x0 = F.interpolate(x1, size=x0.shape[2:], mode='bilinear', align_corners=False)
+        y0 = self.conv_self0(x0) + self.conv_up0(x1_up_to_x0)
+
+        # 2. 次底层 x1 与 x0、x2 融合
+        #    下采样 x0 至 x1 大小，上采样 x2 至 x1 大小，分别1x1卷积后与 x1 融合
+        x0_down_to_x1 = F.interpolate(x0, size=x1.shape[2:], mode='bilinear', align_corners=False)
+        x2_up_to_x1   = F.interpolate(x2, size=x1.shape[2:], mode='bilinear', align_corners=False)
+        y1 = self.conv_self1(x1) + self.conv_down1(x0_down_to_x1) + self.conv_up1(x2_up_to_x1)
+
+        # 3. 中间层 x2 与 x1、x3 融合
+        #    下采样 x1 至 x2 大小，上采样 x3 至 x2 大小，1x1卷积后融合
+        x1_down_to_x2 = F.interpolate(x1, size=x2.shape[2:], mode='bilinear', align_corners=False)
+        x3_up_to_x2   = F.interpolate(x3, size=x2.shape[2:], mode='bilinear', align_corners=False)
+        y2 = self.conv_self2(x2) + self.conv_down2(x1_down_to_x2) + self.conv_up2(x3_up_to_x2)
+
+        # 4. 次高层 x3 与 x2、x4 融合
+        #    下采样 x2 至 x3 大小，上采样 x4 至 x3 大小，1x1卷积后融合
+        x2_down_to_x3 = F.interpolate(x2, size=x3.shape[2:], mode='bilinear', align_corners=False)
+        x4_up_to_x3   = F.interpolate(x4, size=x3.shape[2:], mode='bilinear', align_corners=False)
+        y3 = self.conv_self3(x3) + self.conv_down3(x2_down_to_x3) + self.conv_up3(x4_up_to_x3)
+
+        # 5. 最顶层 x4 仅与 x3 融合（x4 邻居只有下方的 x3）
+        #    将 x3 下采样至 x4 大小，1x1卷积后与 x4 融合
+        x3_down_to_x4 = F.interpolate(x3, size=x4.shape[2:], mode='bilinear', align_corners=False)
+        y4 = self.conv_self4(x4) + self.conv_down4(x3_down_to_x4)
+
+        return [y0, y1, y2, y3, y4]
+
+
 def dpr_generator(drop_path_rate, num_layers, num_stages):
     """
     Generate drop path rate list following linear decay rule
@@ -643,7 +709,7 @@ def dpr_generator(drop_path_rate, num_layers, num_stages):
     return dpr
 
 
-class MambdaMPViT(nn.Module):
+class LocalGlobalViT(nn.Module):
     """Multi-Path ViT class."""
     def __init__(
             self,
@@ -722,12 +788,9 @@ class MambdaMPViT(nn.Module):
             ]
         )
 
-        # self.mb_block0 = MobileMambaBlock(type='s', ed=embed_dims[0])
-        # self.mb_block1 = MobileMambaBlock(type='s', ed=embed_dims[1])
-        # self.mb_block2 = MobileMambaBlock(type='s', ed=embed_dims[2])
-        # self.mb_block3 = MobileMambaBlock(type='s', ed=embed_dims[3])
-        # self.mb_block4 = MobileMambaBlock(type='s', ed=embed_dims[3])
-        self.fusion = FeatureFusionModule(
+        self.gcn_local = LightweightScaleGCN()
+        
+        self.attn_global = GlobalAggregateAttention(
             in_channels_list=embed_dims+[embed_dims[3]],
             embed_dim=128,
             num_heads=4,
@@ -759,24 +822,6 @@ class MambdaMPViT(nn.Module):
         else:
             raise TypeError("pretrained must be a str or None")
     
-    @staticmethod
-    def cross_scale_attention(x3, x4, x5):
-        h3, h4, h5 = x3.shape[2], x4.shape[2], x5.shape[2]
-        h_max = max(h3, h4, h5)
-        x3 = F.interpolate(x3, size=(h_max, h_max), mode='bilinear', align_corners=True)
-        x4 = F.interpolate(x4, size=(h_max, h_max), mode='bilinear', align_corners=True)
-        x5 = F.interpolate(x5, size=(h_max, h_max), mode='bilinear', align_corners=True)
-
-        mul = x3 * x4 * x5
-        x3 = x3 + mul
-        x4 = x4 + mul
-        x5 = x5 + mul
-
-        x3 = F.interpolate(x3, size=(h3, h3), mode='bilinear', align_corners=True)
-        x4 = F.interpolate(x4, size=(h4, h4), mode='bilinear', align_corners=True)
-        x5 = F.interpolate(x5, size=(h5, h5), mode='bilinear', align_corners=True)
-        return x3, x4, x5
-    
     def forward_features(self, x):
         # x's shape : [B, C, H, W]
         outs = []
@@ -786,8 +831,9 @@ class MambdaMPViT(nn.Module):
             att_inputs = self.patch_embed_stages[idx](x)
             x, ff = self.mhca_stages[idx](att_inputs)
             outs.append(x)
-            
-        outs = self.fusion(outs)
+        
+        outs = self.gcn_local(outs)
+        outs = self.attn_global(outs)
         return outs
 
     def forward(self, x):
@@ -798,7 +844,7 @@ class MambdaMPViT(nn.Module):
     def train(self, mode=True):
         """Convert the model into training mode while keep normalization layer
         freezed."""
-        super(MambdaMPViT, self).train(mode)
+        super(LocalGlobalViT, self).train(mode)
         if mode and self.norm_eval:
             for m in self.modules():
                 # trick: eval have effect on BatchNorm only
@@ -818,7 +864,7 @@ def mbmpvit_tiny(**kwargs):
     Activations : 16641952
     """
 
-    model = MambdaMPViT(
+    model = LocalGlobalViT(
         num_stages=4,
         num_path=[2, 3, 3, 3],
         num_layers=[1, 2, 4, 1],
@@ -842,7 +888,7 @@ def mbmpvit_xsmall(**kwargs):
     FLOPs : 2971396560
     Activations : 21983464
     """
-    model = MambdaMPViT(
+    model = LocalGlobalViT(
         num_stages=4,
         num_path=[2, 3, 3, 3],
         num_layers=[1, 2, 4, 1],
@@ -871,7 +917,7 @@ def mbmpvit_small(**kwargs):
     Activations : 30601880
     """
 
-    model = MambdaMPViT(
+    model = LocalGlobalViT(
         num_stages=4,
         num_path=[2, 3, 3, 3],
         num_layers=[1, 3, 6, 3],
@@ -901,7 +947,7 @@ def mbmpvit_base(**kwargs):
     Activations : 60204392
     """
 
-    model = MambdaMPViT(
+    model = LocalGlobalViT(
         num_stages=4,
         num_path=[2, 3, 3, 3],
         num_layers=[1, 3, 8, 3],
@@ -918,9 +964,10 @@ if __name__ == '__main__':
     model = mbmpvit_small()
     model.num_ch_enc = [64, 128, 216, 288, 288]
     x = torch.randn(2, 3, 192, 640)
-    output = model(x)
-    for y in output:
-        print(y.shape)
+    output_features = model(x)
+    # 打印每个输出特征的张量形状，验证与输入形状一致
+    for i, out in enumerate(output_features):
+        print(f"Output feature {i} shape: {tuple(out.shape)}")
 
     """
     ([b, 64, 96, 320])

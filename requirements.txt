@@ -5,7 +5,6 @@ fsspec==2025.3.0
 imageio==2.35.1
 jmespath==0.10.0
 kiwisolver==1.4.7
-lazy_loader==0.4
 Markdown==3.7
 markdown-it-py==3.0.0
 matplotlib==3.7.5
@@ -13,7 +12,6 @@ mdurl==0.1.2
 mmcls==0.25.0
 mmcv==1.6.0
 mmengine==0.10.7
-mmsegmentation==0.29.0
 model-index==0.1.11
 ninja==1.11.1.4
 opencv-python==4.11.0.86
