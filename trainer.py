@@ -260,7 +260,7 @@ class Trainer:
         
         if self.opt.net_type == "mbvit":
             print("Train mobile Mambda ViT")
-            pretrain_path = 'ckpt/weatherdepthVit_Official'
+            pretrain_path = 'ckpt/pretrained'
             encoder_dict = torch.load(os.path.join(pretrain_path, 'encoder.pth'))
             depth_dict = torch.load(os.path.join(pretrain_path, 'depth.pth'))
             

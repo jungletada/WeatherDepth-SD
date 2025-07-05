@@ -173,9 +173,11 @@ python -u train.py \
     --contrast_with 0 0 1 \
     --cta_wadd 0.02 \
     --max_patience 0 \
+    --split eigen_zhou \
     --gan -ss --do_save 
 ```
 
+**Ours**
 ```shell
 python -u train.py \
     --data_path data/kitti \
@@ -186,6 +188,7 @@ python -u train.py \
     --num_epochs 60 \
     --weather all \
     --cur_vis 4 \
+    --split eigen_zhou \
     --contrast_with 0 0 1 \
     --cta_wadd 0.02 \
     --max_patience 0 \

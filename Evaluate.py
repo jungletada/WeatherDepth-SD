@@ -19,9 +19,11 @@ import cv2
 import time
 import logging
 import warnings
+import numpy as np
 from tqdm import tqdm, trange
 from PIL import Image
 # from torchvision.utils import save_image
+import matplotlib.pyplot as plt
 from torch.utils.data import DataLoader
 from datetime import datetime
 
@@ -265,6 +267,41 @@ def inference(opt, dataset, dataloader, encoder, depth_decoder):
     return pred_disps, probabilities_max, names
 
 
+def visualize(opt, filename, pred_depth, gt_depth=None):
+    """
+    Visualize predicted and ground truth depth maps as separate heatmaps.
+    
+    Args:
+        opt: An option/config object, can be None if not used.
+        filename (str): Output filename prefix (without .png extension).
+        pred_depth (np.array): Predicted depth map, shape (H, W).
+        gt_depth (np.array, optional): Ground truth depth map, shape (H, W).
+    """
+    # Normalize predicted depth
+    # opt.cmap = 'Spetral'
+    pred_norm = pred_depth / (np.max(pred_depth) + 1e-8)
+    plt.figure()
+    plt.imshow(pred_norm, cmap='plasma')
+    plt.axis('off')
+    
+    pred_filename = f"{filename}_pred.png"
+    plt.savefig(pred_filename, bbox_inches='tight', pad_inches=-0.1)
+    plt.close()
+    print(f"Saved predicted depth to {pred_filename}")
+
+    # If gt_depth is provided, save it separately
+    if gt_depth is not None:
+        gt_norm = gt_depth / (np.max(gt_depth) + 1e-8)
+        plt.figure()
+        plt.imshow(gt_norm, cmap='plasma')
+        plt.axis('off')
+        
+        gt_filename = f"{filename}_gt.png"
+        plt.savefig(gt_filename, bbox_inches='tight', pad_inches=-0.1)
+        plt.close()
+        print(f"Saved ground truth depth to {gt_filename}")
+
+
 def evaluate(opt, pred_disps, probabilities_max, names, gt_depths):
     errors = []
     ratios = []
@@ -285,8 +322,7 @@ def evaluate(opt, pred_disps, probabilities_max, names, gt_depths):
         else:
             gt_depth = gt_depths[str(i)]
         gt_height, gt_width = gt_depth.shape[:2]
-        # print(gt_height, gt_width)
-        
+       
         pred_disp = pred_disps[i]
         pred_disp = cv2.resize(pred_disp, (gt_width, gt_height))
         pred_depth = 0.1 * 0.58 * opt.width / (pred_disp) if opt.net_type == "plane" else 1 / pred_disp
@@ -303,7 +339,10 @@ def evaluate(opt, pred_disps, probabilities_max, names, gt_depths):
             mask = np.logical_and(mask, crop_mask)
         else:
             mask = gt_depth > 0
-
+        
+        visualize(opt, filename='1111', pred_depth=pred_depth, gt_depth=gt_depth)
+        print(f'{gt_depth.shape}, {pred_depth.shape}')
+        
         pred_depth = pred_depth[mask]
         gt_depth = gt_depth[mask]
 
