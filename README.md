@@ -144,8 +144,18 @@ python Evaluate.py --data_path data/kitti --eval_mono --net_type vit --width 640
 
 - WeatherDepth+
 ```bash
-python Evaluate.py --data_path data/kitti --eval_stereo --net_type wav --width 1024 --height 320 --load_weights_folder ckpt/weatherdepthWav --eval_split eigen_raw -twt -tww
+python Evaluate.py --data_path data/kitti --eval_stereo --net_type wav --width 1024 --height 320 \
+    --load_weights_folder ckpt/weatherdepthWav \
+    --eval_split eigen_raw -twt -tww
 ```
+
+- WeatherDepth -Ours
+```bash
+python Evaluate.py --data_path data/kitti --eval_mono --net_type mbvit --width 640 --height 192 \
+        --load_weights_folder logs/WeatherDepthViT_cur4_all/24 \
+        --eval_split eigen_raw -twt -tww
+```
+
 
 ## ⏳ Training
 **Monocular training:(MonoViT)**

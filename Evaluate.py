@@ -149,6 +149,15 @@ def create_model(opt):
         encoder.load_state_dict({k: v for k, v in encoder_dict.items() if k in model_dict})
         depth_decoder.load_state_dict(torch.load(decoder_path, map_location='cuda:0'))
     
+    elif opt.net_type == "mbvit":
+        encoder_dict = torch.load(encoder_path, map_location='cuda:0')
+        encoder = networks.mbmpvit_small()
+        encoder.num_ch_enc = [64, 128, 216, 288, 288]
+        depth_decoder = networks.HR_DepthDecoder()
+        model_dict = encoder.state_dict()
+        encoder.load_state_dict({k: v for k, v in encoder_dict.items() if k in model_dict})
+        depth_decoder.load_state_dict(torch.load(decoder_path, map_location='cuda:0'))
+    
     elif opt.net_type == "vithr":
         depth_dict = torch.load(decoder_path)
         new_dict = {}
