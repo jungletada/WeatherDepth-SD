@@ -152,7 +152,7 @@ python Evaluate.py --data_path data/kitti --eval_stereo --net_type wav --width 1
 - WeatherDepth -Ours
 ```bash
 python Evaluate.py --data_path data/kitti --eval_mono --net_type mbvit --width 640 --height 192 \
-        --load_weights_folder logs/WeatherDepthViT_cur4_all/24 \
+        --load_weights_folder ckpt/pretrained_24 \
         --eval_split eigen_raw -twt -tww
 ```
 

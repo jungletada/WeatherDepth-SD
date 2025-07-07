@@ -156,10 +156,27 @@ def create_model(opt):
         encoder = networks.mbmpvit_small()
         encoder.num_ch_enc = [64, 128, 216, 288, 288]
         depth_decoder = networks.HR_DepthDecoder()
+
+        # 过滤只加载匹配的参数
         model_dict = encoder.state_dict()
-        encoder.load_state_dict({k: v for k, v in encoder_dict.items() if k in model_dict})
-        depth_decoder.load_state_dict(torch.load(decoder_path, map_location='cuda:0'))
-    
+        filtered_dict = {k: v for k, v in encoder_dict.items() if k in model_dict}
+        # 加载时检查缺失/多余
+        missing_keys, unexpected_keys = encoder.load_state_dict(filtered_dict, strict=False)
+        # 手动检查剩余缺失的键（如果有）
+        remaining_missing = set(model_dict.keys()) - set(filtered_dict.keys())
+
+        # 打印日志
+        print("Missing keys during loading:", missing_keys)
+        print("Unexpected keys during loading:", unexpected_keys)
+        print("Remaining missing keys not loaded:", remaining_missing)
+
+        # 加载depth_decoder
+        decoder_state = torch.load(decoder_path, map_location='cuda:0')
+        missing_keys, unexpected_keys = depth_decoder.load_state_dict(decoder_state, strict=False)
+        print("Decoder missing keys:", missing_keys)
+        print("Decoder unexpected keys:", unexpected_keys)
+
+
     elif opt.net_type == "vithr":
         depth_dict = torch.load(decoder_path)
         new_dict = {}
@@ -287,8 +304,7 @@ def visualize(opt, filename, pred_depth, gt_depth=None):
     pred_filename = f"{filename}_pred.png"
     plt.savefig(pred_filename, bbox_inches='tight', pad_inches=-0.1)
     plt.close()
-    print(f"Saved predicted depth to {pred_filename}")
-
+    
     # If gt_depth is provided, save it separately
     if gt_depth is not None:
         gt_norm = gt_depth / (np.max(gt_depth) + 1e-8)
@@ -299,8 +315,7 @@ def visualize(opt, filename, pred_depth, gt_depth=None):
         gt_filename = f"{filename}_gt.png"
         plt.savefig(gt_filename, bbox_inches='tight', pad_inches=-0.1)
         plt.close()
-        print(f"Saved ground truth depth to {gt_filename}")
-
+        
 
 def evaluate(opt, pred_disps, probabilities_max, names, gt_depths):
     errors = []
@@ -340,8 +355,7 @@ def evaluate(opt, pred_disps, probabilities_max, names, gt_depths):
         else:
             mask = gt_depth > 0
         
-        visualize(opt, filename='1111', pred_depth=pred_depth, gt_depth=gt_depth)
-        print(f'{gt_depth.shape}, {pred_depth.shape}')
+        # visualize(opt, filename='1111', pred_depth=pred_depth, gt_depth=gt_depth)
         
         pred_depth = pred_depth[mask]
         gt_depth = gt_depth[mask]
